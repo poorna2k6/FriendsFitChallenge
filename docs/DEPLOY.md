@@ -4,7 +4,7 @@
 
 ```
 public/            static PWA: index.html, live.js, engine.js, sw.js, manifest, icons, built CSS, Chart.js
-api/[...path].js   ONE serverless function (Node) → lib/handler.js → lib/routes.js
+api/index.js       ONE serverless function (vercel.json rewrites /api/* to it) (Node) → lib/handler.js → lib/routes.js
 lib/               auth, http, scoring, state builder, health ingest, peek pricing
 db/migrations/*.sql  versioned schema; db/migrate.js applies new ones on every build
 ```
