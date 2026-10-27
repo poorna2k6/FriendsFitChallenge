@@ -35,7 +35,7 @@ Rules of thumb: migrations are forward-only (never edit an applied file); prefer
 ## 4. Deploy
 Click **Deploy**. The build creates all tables on the first run. If you added the database after the first deploy, just **Redeploy**.
 
-Check: open `https://YOUR-APP.vercel.app/api/healthz` → `{"ok":true}`.
+Check: open `https://YOUR-APP.vercel.app/api/healthz`. It should show `"ok":true`; otherwise it tells you which piece is missing (`authSecret`, `databaseUrl`, `database`, `schema`). If tables are missing (e.g. a preview build, which skips migrations) the first sign-up/login creates them automatically.
 
 ## 5. Use it
 1. Open the site on your phone, **Create account**, then **Connect health app** (see `docs/HEALTH_SYNC.md`).
