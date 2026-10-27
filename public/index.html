@@ -8,35 +8,14 @@
   <meta name="apple-mobile-web-app-title" content="StakeFit" />
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="theme-color" content="#000000" />
-  <link rel="manifest" href="data:application/manifest+json,%7B%22name%22%3A%22StakeFit%20iOS%20Challenge%22%2C%22short_name%22%3A%22StakeFit%22%2C%22display%22%3A%22standalone%22%2C%22background_color%22%3A%22%23000000%22%2C%22theme_color%22%3A%22%2310b981%22%7D" />
+  <meta name="description" content="Stake money on your fitness with friends. Auto-sync steps, calories and workouts from your phone health app." />
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png" />
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
   <title>StakeFit — Friends Fitness Challenge &amp; Proportional Payout Tracker</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <script src="https://cdn.tailwindcss.com/3.4.17"></script>
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1"></script>
-  <script>
-    if (typeof tailwind !== 'undefined') tailwind.config = {
-      darkMode: 'class',
-      theme: {
-        extend: {
-          fontFamily: {
-            sans: ['Inter', 'system-ui', 'sans-serif'],
-          },
-          colors: {
-            brand: {
-              50: '#ecfdf5',
-              100: '#d1fae5',
-              400: '#34d399',
-              500: '#10b981',
-              600: '#059669',
-              900: '#064e3b'
-            }
-          }
-        }
-      }
-    };
-  </script>
+  <link rel="stylesheet" href="/assets/app.css" />
+  <script src="/vendor/chart.umd.js"></script>
+  <script src="/engine.js"></script>
   <style>
     body {
       font-family: 'Inter', system-ui, -apple-system, sans-serif;
@@ -1551,7 +1530,7 @@
         </div>
 
         <!-- 4 Pillars of Enterprise Architecture -->
-        <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mt-5 pt-5 border-t border-slate-800">
+        <div class="demo-only grid grid-cols-1 md:grid-cols-4 gap-4 mt-5 pt-5 border-t border-slate-800">
           <div class="glass-sub rounded-xl p-4 space-y-1.5">
             <div class="text-xs font-bold text-emerald-400 uppercase tracking-wider">1. Strict RBAC Isolation</div>
             <div class="text-sm font-bold text-white">JWT + Row-Level Security</div>
@@ -1606,7 +1585,7 @@
           </div>
 
           <!-- Live Sensor / BLE Telemetry Stream Box -->
-          <div class="p-4 rounded-xl bg-slate-950/90 border border-slate-800 space-y-3">
+          <div class="demo-only p-4 rounded-xl bg-slate-950/90 border border-slate-800 space-y-3">
             <div class="flex flex-wrap items-center justify-between gap-2">
               <div class="flex items-center gap-2">
                 <span id="bleIndicatorDot" class="w-2.5 h-2.5 rounded-full bg-slate-600"></span>
@@ -1636,7 +1615,7 @@
         </div>
 
         <!-- Right 5 Cols: Enterprise Anti-Cheat & Spoofing Stress-Test Lab -->
-        <div class="lg:col-span-5 glass-card rounded-2xl p-5 sm:p-6 flex flex-col justify-between space-y-4">
+        <div class="demo-only lg:col-span-5 glass-card rounded-2xl p-5 sm:p-6 flex flex-col justify-between space-y-4">
           <div class="space-y-3">
             <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-rose-500/15 text-rose-300 text-xs font-bold border border-rose-500/30">
               <span>🛡️ Fraud &amp; Spoofing Stress-Test Simulator</span>
@@ -2305,125 +2284,19 @@
 
     // ==================== CORE PROPORTIONAL PAYOUT ENGINE ====================
     function calculateStandingsAndPayouts(ch) {
-      const safeBuyIn = Math.max(0.01, Number(ch.buyIn) || 5);
-      const safeCutoffPct = Math.max(10, Math.min(99, Number(ch.cutoffPct) || 70));
-      const safeSlashPct = Math.max(0, Math.min(100, Number.isFinite(Number(ch.slashPct)) ? Number(ch.slashPct) : 100));
-      ch.buyIn = safeBuyIn;
-      ch.cutoffPct = safeCutoffPct;
-      ch.slashPct = safeSlashPct;
-
+      // Pure maths lives in /engine.js (shared with the server so both always agree).
       const pData = getChallengePeekData(ch.id);
-      const peekPotBonus = Number(pData.totalPeekPot || 0);
-
-      const friendsSorted = [...ch.friends].sort((a, b) => b.score - a.score);
-      const rawTopScore = friendsSorted.length > 0 ? Math.max(1, friendsSorted[0].score) : 1;
-      const antiSandbagOn = state.expansionModules && state.expansionModules.some(m => m.id === 'mod_antisandbag' && m.enabled);
-      const minLeaderFloor = antiSandbagOn ? Math.round((ch.dailyBenchmark || 100) * Math.max(1, ch.daysElapsed) * 0.5) : 1;
-      const topScore = Math.max(rawTopScore, minLeaderFloor);
-      const cutoffScore = Math.round(topScore * (safeCutoffPct / 100));
-      const totalParticipants = friendsSorted.length;
-      const totalEscrowPot = totalParticipants * safeBuyIn;
-      const slashFraction = safeSlashPct / 100;
-      const graceMap = (state.graceFreezesByMember && state.graceFreezesByMember[ch.id]) || {};
-
-      // Classify friends into Qualifiers (score >= memberCutoffScore) vs Failed
-      const enriched = friendsSorted.map((f, idx) => {
-        const pctOfTop = (f.score / topScore) * 100;
-        const isTopLeader = idx === 0;
-        const hasGrace = Boolean(graceMap[f.id]);
-        const effectiveCutoffPct = hasGrace ? Math.max(10, safeCutoffPct - 5) : safeCutoffPct;
-        const memberCutoff = Math.round(topScore * (effectiveCutoffPct / 100));
-        const isSafe = f.score >= memberCutoff || idx === 0; // Top leader (#1) is always safe
-        const gapToCutoff = isSafe ? 0 : Math.ceil(memberCutoff - f.score);
-        const bufferAboveCutoff = isSafe ? Math.max(0, Math.floor(f.score - memberCutoff)) : 0;
-        return {
-          ...f,
-          rank: idx + 1,
-          pctOfTop,
-          isTopLeader,
-          isSafe,
-          gapToCutoff,
-          bufferAboveCutoff
-        };
+      const calc = StakeFitEngine.computeStandings(ch, {
+        peek: pData,
+        antiSandbag: Boolean(state.expansionModules && state.expansionModules.some(m => m.id === 'mod_antisandbag' && m.enabled)),
+        graceMap: (state.graceFreezesByMember && state.graceFreezesByMember[ch.id]) || {},
+        routingMode: state.peekConfig.routingMode,
+        peekCap: Boolean(state.expansionModules && state.expansionModules.some(m => m.id === 'mod_peekcap' && m.enabled))
       });
-
-      const qualifiers = enriched.filter(f => f.isSafe);
-      const failed = enriched.filter(f => !f.isSafe);
-
-      // Calculate forfeited pool from failed participants + peek pot bonus
-      const forfeitedPool = failed.length * safeBuyIn * slashFraction;
-      const totalBonusPool = forfeitedPool + peekPotBonus;
-
-      const sumQualifierScores = qualifiers.reduce((acc, f) => acc + Math.max(1, f.score), 0);
-      const sumQualifierSurplus = qualifiers.reduce((acc, f) => acc + Math.max(1, f.score - cutoffScore + 1), 0);
-
-      const finalRows = enriched.map(f => {
-        let slashedAmount = 0;
-        let retainedBuyIn = safeBuyIn;
-        let achievementSharePct = 0;
-        let bonusWon = 0;
-
-        if (!f.isSafe) {
-          slashedAmount = safeBuyIn * slashFraction;
-          retainedBuyIn = safeBuyIn - slashedAmount;
-          achievementSharePct = 0;
-          bonusWon = 0;
-        } else {
-          if (ch.distributionMode === 'proportional_surplus') {
-            const weight = Math.max(1, f.score - cutoffScore + 1) / Math.max(1, sumQualifierSurplus);
-            achievementSharePct = weight * 100;
-            bonusWon = totalBonusPool * weight;
-          } else if (ch.distributionMode === 'all_in_pot') {
-            // Entire pot of qualifiers + slashed pool + peek pot distributed by total score among qualifiers
-            const totalSharedPool = (qualifiers.length * safeBuyIn) + totalBonusPool;
-            const weight = Math.max(1, f.score) / Math.max(1, sumQualifierScores);
-            achievementSharePct = weight * 100;
-            const totalPayoutBase = totalSharedPool * weight;
-            bonusWon = totalPayoutBase - safeBuyIn;
-          } else {
-            // Default: proportional_total
-            const weight = Math.max(1, f.score) / Math.max(1, sumQualifierScores);
-            achievementSharePct = weight * 100;
-            bonusWon = totalBonusPool * weight;
-          }
-        }
-
-        const spyRoyaltyEarned = Number(pData.spyRoyaltiesByMember[f.id] || 0);
-        const peekSpent = Number(pData.peekFeesByMember[f.id] || 0);
-        const stakeDeductedByPeeks = state.peekConfig.routingMode === 'stake_deduct' ? peekSpent : 0;
-
-        const finalPayout = retainedBuyIn + bonusWon + spyRoyaltyEarned - stakeDeductedByPeeks;
-        const netProfit = finalPayout - safeBuyIn;
-        const roiPct = safeBuyIn > 0 ? (netProfit / safeBuyIn) * 100 : 0;
-
-        return {
-          ...f,
-          slashedAmount,
-          retainedBuyIn,
-          achievementSharePct,
-          bonusWon,
-          spyRoyaltyEarned,
-          peekSpent,
-          stakeDeductedByPeeks,
-          finalPayout,
-          netProfit,
-          roiPct
-        };
-      });
-
-      return {
-        topLeader: finalRows[0] || null,
-        topScore,
-        cutoffScore,
-        totalEscrowPot,
-        forfeitedPool,
-        peekPotBonus,
-        totalBonusPool,
-        qualifiersCount: qualifiers.length,
-        failedCount: failed.length,
-        sumQualifierScores,
-        rows: finalRows
-      };
+      ch.buyIn = calc.buyIn;
+      ch.cutoffPct = calc.cutoffPct;
+      ch.slashPct = calc.slashPct;
+      return calc;
     }
 
     // ==================== CHARTS ====================
@@ -2575,7 +2448,7 @@
       chSelect.innerHTML = state.challenges.map(c => {
         const mc = METRIC_CONFIG[c.metric] || METRIC_CONFIG.steps;
         const dc = DURATION_CONFIG[c.durationKey] || DURATION_CONFIG['1M'];
-        return `<option value="${c.id}" ${c.id === ch.id ? 'selected' : ''}>${mc.icon} ${c.title} (${dc.short} • $${c.buyIn})</option>`;
+        return `<option value="${c.id}" ${c.id === ch.id ? 'selected' : ''}>${mc.icon} ${escapeHtml(c.title)} (${dc.short} • $${c.buyIn})</option>`;
       }).join('');
 
       // 2. Hero Section
@@ -2858,6 +2731,16 @@
       renderCharts(ch, calc);
     }
 
+    function rejectMemberGlitchRequest(reqId) {
+      const ch = getActiveChallenge();
+      const req = (ch.glitchRequests || []).find(r => r.id === reqId);
+      if (!req) return;
+      req.status = 'rejected';
+      saveState();
+      renderAll();
+      showToast(`Declined ${req.friendName}'s request.`);
+    }
+
     function renderAdminPendingGlitchRequests(ch) {
       const card = document.getElementById('adminPendingGlitchRequestsCard');
       const list = document.getElementById('adminPendingGlitchRequestsList');
@@ -2872,12 +2755,15 @@
         <div class="p-3 rounded-xl bg-slate-950 border border-amber-500/30 flex items-center justify-between gap-2 text-xs">
           <div>
             <span class="font-extrabold text-white">${escapeHtml(r.friendName)}</span>
-            <span class="text-emerald-400 font-mono font-bold ml-1">+${Number(r.delta).toLocaleString()} ${escapeHtml(r.unit)}</span>
+            <span class="text-emerald-400 font-mono font-bold ml-1">+${Number(r.delta).toLocaleString()} ${escapeHtml(r.unit || (METRIC_CONFIG[ch.metric] || {}).shortUnit || '')}</span>
             <div class="text-[11px] text-slate-400">${escapeHtml(r.reason)} • ${escapeHtml(r.time)}</div>
           </div>
-          <button type="button" onclick="approveMemberGlitchRequest('${r.id}')" class="px-3 py-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs shrink-0">
-            ✓ Approve Fix
-          </button>
+          <div class="flex items-center gap-1.5 shrink-0">
+            <button type="button" onclick="rejectMemberGlitchRequest('${r.id}')" class="px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-rose-500/20 text-slate-300 hover:text-rose-300 font-bold text-xs">Decline</button>
+            <button type="button" onclick="approveMemberGlitchRequest('${r.id}')" class="px-3 py-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs">
+              ✓ Approve Fix
+            </button>
+          </div>
         </div>
       `).join('');
     }
@@ -2887,7 +2773,9 @@
       const losers = calc.rows.filter(r => r.netProfit < -0.01);
       const winners = calc.rows.filter(r => r.netProfit > 0.01);
 
-      if (losers.length === 0 || winners.length === 0) {
+      if (calc.redacted) {
+        transfersContainer.innerHTML = `<div class="p-4 rounded-xl bg-amber-500/10 border border-amber-500/30 text-xs text-amber-200">🔒 <strong>Settlement transfers are hidden in Blind Mode.</strong> They unlock when you Peek All, and are always shown to everyone once the challenge ends.</div>`;
+      } else if (losers.length === 0 || winners.length === 0) {
         transfersContainer.innerHTML = `
           <div class="p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-xs text-emerald-200">
             🎉 <strong>Every friend is currently above the ${ch.cutoffPct}% threshold!</strong> Nobody loses their stake right now—all ${ch.friends.length} friends keep 100% of their $${ch.buyIn} buy-in.
@@ -2934,8 +2822,8 @@
         feedContainer.innerHTML = ch.logs.map(item => `
           <div class="p-3 rounded-xl bg-slate-900/90 border border-slate-800 flex items-center justify-between gap-3">
             <div>
-              <div class="text-xs font-bold text-white">${item.friend} <span class="text-emerald-400 font-mono">+${Number(item.amount).toLocaleString()} ${item.unit}</span></div>
-              <div class="text-[11px] text-slate-400">${item.note || 'Logged workout'} • <span class="text-slate-300">${item.source}</span></div>
+              <div class="text-xs font-bold text-white">${escapeHtml(item.friend)} ${item.hidden ? '<span class="text-amber-300 font-mono">🔒 hidden</span>' : `<span class="text-emerald-400 font-mono">+${Number(item.amount).toLocaleString()} ${escapeHtml(item.unit)}</span>`}</div>
+              <div class="text-[11px] text-slate-400">${escapeHtml(item.note || 'Logged workout')} • <span class="text-slate-300">${escapeHtml(item.source)}</span></div>
             </div>
             <span class="text-[10px] text-slate-400 shrink-0">${item.time}</span>
           </div>
@@ -3983,7 +3871,7 @@
 
       const calc = calculateStandingsAndPayouts(ch);
       if (islandText) {
-        islandText.textContent = `${ch.title.slice(0, 18)} • $${Math.round(calc.totalPot + (state.peekPoolAdded || 0))}`;
+        islandText.textContent = `${ch.title.slice(0, 18)} • $${Math.round(calc.totalEscrowPot + calc.peekPotBonus)}`;
       }
 
       if (isAdmin) {
@@ -4162,7 +4050,7 @@
         // 1) c is the active challenge and isSignedInUserChallengeAdmin(c) is true, OR
         // 2) c was newly created by the user (c.isNewlyCreated), OR
         // 3) adminFriend.name matches activeAuthFriend.name
-        const isUserAdminHere = Boolean(
+        const isUserAdminHere = (typeof c.isAdmin === 'boolean') ? c.isAdmin : Boolean(
           c.isNewlyCreated ||
           (c.id === activeCh.id && isSignedInUserChallengeAdmin(c)) ||
           (adminFriend && activeAuthFriend && adminFriend.name === activeAuthFriend.name)
@@ -4225,17 +4113,17 @@
                     ${isUserAdminHere ? '👑 Your Role: ADMIN (Creator)' : '🏃 Your Role: MEMBER'}
                   </span>
                   <span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-white/10 text-slate-300">
-                    ${dCfg.badge} • Day ${c.daysElapsed}/${dCfg.totalDays}
+                    ${dCfg.short} • Day ${c.daysElapsed}/${dCfg.totalDays}
                   </span>
                 </div>
                 <h3 class="text-base sm:text-lg font-black text-white truncate">${escapeHtml(c.title)}</h3>
                 <div class="text-[11px] text-slate-400">
-                  ${mCfg.icon} ${mCfg.label} • Hosted by <strong class="text-slate-200">${escapeHtml(adminFriend ? adminFriend.name : 'Host')}</strong> • Cutoff: <strong class="text-amber-300">${c.cutoffPct}% of #1</strong>
+                  ${mCfg.icon} ${mCfg.name} • Hosted by <strong class="text-slate-200">${escapeHtml(adminFriend ? adminFriend.name : 'Host')}</strong> • Cutoff: <strong class="text-amber-300">${c.cutoffPct}% of #1</strong>
                 </div>
               </div>
               <div class="text-right shrink-0">
                 <div class="text-[10px] uppercase font-bold text-slate-400">Total Pot</div>
-                <div class="text-lg sm:text-xl font-black text-emerald-400">$${calc.totalPot.toFixed(0)}</div>
+                <div class="text-lg sm:text-xl font-black text-emerald-400">$${(calc.totalEscrowPot + calc.peekPotBonus).toFixed(0)}</div>
                 <div class="text-[10px] text-slate-400">$${c.buyIn} buy-in</div>
               </div>
             </div>
@@ -4895,7 +4783,7 @@
                   </div>
                   <div>
                     <div class="font-bold text-sm text-white flex items-center gap-1.5">
-                      <span>${r.name}</span>
+                      <span>${escapeHtml(r.name)}</span>
                       ${isMe ? '<span class="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500 text-slate-950 font-extrabold">YOU</span>' : ''}
                       ${showPctAndRank ? `<span class="text-[10px] px-2 py-0.5 rounded-full bg-slate-800 text-amber-300 font-bold">Rank #${r.rank}</span>` : ''}
                     </div>
@@ -5103,14 +4991,17 @@
       const totalBonusPool = calc.forfeitedPool + pData.totalPeekPot;
       document.getElementById('potViewBaseEscrow').textContent = `$${calc.totalEscrowPot.toFixed(2)}`;
       document.getElementById('potViewMembersCount').textContent = `${ch.friends.length} members × $${ch.buyIn}`;
-      document.getElementById('potViewSlashedPool').textContent = `+$${calc.forfeitedPool.toFixed(2)}`;
-      document.getElementById('potViewSlashedCount').textContent = `${calc.failedCount} below ${ch.cutoffPct}% of #1`;
+      document.getElementById('potViewSlashedPool').textContent = calc.redacted ? '🔒 Hidden' : `+$${calc.forfeitedPool.toFixed(2)}`;
+      document.getElementById('potViewSlashedCount').textContent = calc.redacted ? 'Blind Mode: reveal with Peek All' : `${calc.failedCount} below ${ch.cutoffPct}% of #1`;
       document.getElementById('potViewPeekPool').textContent = `+$${pData.totalPeekPot.toFixed(2)}`;
-      document.getElementById('potViewTotalBonus').textContent = `$${totalBonusPool.toFixed(2)}`;
+      document.getElementById('potViewTotalBonus').textContent = calc.redacted ? '🔒 Hidden' : `$${totalBonusPool.toFixed(2)}`;
 
       const cleanPayoutEl = document.getElementById('cleanPayoutRows');
       if (cleanPayoutEl) {
         cleanPayoutEl.innerHTML = calc.rows.map(r => {
+          if (r.hiddenMath) {
+            return `<div class="p-3.5 rounded-xl bg-slate-950/80 border border-slate-800 flex items-center justify-between gap-3"><div class="flex items-center gap-3"><div class="w-8 h-8 rounded-lg flex items-center justify-center font-bold text-xs text-slate-950" style="background:${r.color}">${escapeHtml(r.avatar)}</div><div class="text-xs sm:text-sm font-bold text-white">${escapeHtml(r.name)}</div></div><div class="text-[11px] text-amber-300">🔒 Payout hidden in Blind Mode — reveal with Peek All</div></div>`;
+          }
           const extraMeta = [];
           if (r.spyRoyaltyEarned > 0) extraMeta.push(`Spy Royalty: +$${r.spyRoyaltyEarned.toFixed(2)}`);
           if (r.stakeDeductedByPeeks > 0) extraMeta.push(`Peek Deduct: -$${r.stakeDeductedByPeeks.toFixed(2)}`);
@@ -5359,7 +5250,7 @@
   "theme_color": "#10b981"
 }`;
       if (navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(bundle);
+        navigator.clipboard.writeText(bundle).catch(() => {});
       }
       showDeployBanner('📋 Copied vercel.json + PWA manifest.json to clipboard!');
     }
@@ -5424,15 +5315,15 @@ create policy "Blind mode read with active peek pass" on public.daily_logs
     )
   );`;
       if (navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(sql);
+        navigator.clipboard.writeText(sql).catch(() => {});
       }
       showDeployBanner('🗄️ Copied Supabase Postgres Schema + Blind Mode RLS Policies!');
     }
     function copyWhatsAppInviteValidationPack() {
       const c = typeof getActiveChallenge === 'function' ? getActiveChallenge() : null;
-      const name = c ? c.name : '7-Day Steps Sprint';
-      const stake = c ? ('$' + Number(c.stake).toFixed(2)) : '$5.00';
-      const peek = c ? ('$' + Number(c.peekFee || 0.10).toFixed(2)) : '$0.10 (10¢)';
+      const name = c ? c.title : '7-Day Steps Sprint';
+      const stake = c ? ('$' + Number(c.buyIn).toFixed(2)) : '$5.00';
+      const peek = c ? ('$' + Number(state.peekConfig.peekOneCost || 0.10).toFixed(2)) : '$0.10 (10¢)';
       const msg = `🔥 *You're Invited: ${name} (StakeFit Pilot)* 🔥
 ` +
         `💰 *Buy-In Stake:* ${stake} per person
@@ -5443,11 +5334,12 @@ create policy "Blind mode read with active peek pass" on public.daily_logs
 ` +
         `📲 *Join & Sync Steps:* Open our live StakeFit app link & tap "Add to Home Screen"!`;
       if (navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(msg);
+        navigator.clipboard.writeText(msg).catch(() => {});
       }
       showDeployBanner('💬 Copied WhatsApp / iMessage Pilot Invite to clipboard!');
     }
   </script>
 
+  <script src="/live.js"></script>
 </body>
 </html>

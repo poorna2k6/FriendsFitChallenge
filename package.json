@@ -1,0 +1,26 @@
+{
+  "name": "stakefit",
+  "version": "1.0.0",
+  "private": true,
+  "description": "StakeFit - friends fitness challenge with proportional payouts (PWA + Postgres + phone health sync)",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "node db/migrate.js --if-configured",
+    "dev": "node scripts/dev-server.js",
+    "test": "node --test \"tests/*.test.js\"",
+    "db:migrate": "node db/migrate.js",
+    "build:css": "tailwindcss -c tailwind.config.js -i src/tailwind.css -o public/assets/app.css --minify",
+    "build:vendor": "node scripts/copy-vendor.js",
+    "build:icons": "node scripts/gen-icons.js",
+    "setup:vercel": "bash scripts/setup-vercel.sh"
+  },
+  "dependencies": {
+    "pg": "^8.13.1"
+  },
+  "devDependencies": {
+    "tailwindcss": "^3.4.17",
+    "chart.js": "^4.4.1"
+  }
+}
