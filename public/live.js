@@ -92,7 +92,7 @@
     let data = {};
     try { data = await res.json(); } catch (e) { /* empty */ }
     if (res.status === 401 && LIVE.on) { LIVE.on = false; showAuth(); }
-    if (!res.ok) throw Object.assign(new Error(data.error || `Request failed (${res.status})`), { status: res.status, data });
+    if (!res.ok) throw Object.assign(new Error(data.error || (res.status === 404 ? 'The server API was not found (404). The latest code may not be deployed yet - redeploy and try again.' : `Request failed (${res.status})`)), { status: res.status, data });
     return data;
   }
 
