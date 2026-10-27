@@ -6,7 +6,7 @@
 public/            static PWA: index.html, live.js, engine.js, sw.js, manifest, icons, built CSS, Chart.js
 api/[...path].js   ONE serverless function (Node) → lib/handler.js → lib/routes.js
 lib/               auth, http, scoring, state builder, health ingest, peek pricing
-db/schema.sql      Postgres schema (idempotent); db/migrate.js applies it
+db/migrations/*.sql  versioned schema; db/migrate.js applies new ones on every build
 ```
 Why one function? Vercel's free plan caps functions per deployment; a single catch-all keeps you far from it.
 
@@ -14,19 +14,26 @@ Why one function? Vercel's free plan caps functions per deployment; a single cat
 1. Vercel dashboard → **Add New → Project** → import `poorna2k6/friendsfitchallenge`.
 2. Framework preset: **Other**. Leave build/output settings as detected (`vercel.json` already sets `npm run build` and output `public`).
 
-## 2. Add the database
-Vercel dashboard → your project → **Storage → Create / Connect → Neon (Postgres)** (Vercel's Postgres is provided via the Neon marketplace integration). Accept the defaults and connect it to **Production + Preview**. This injects `DATABASE_URL` / `POSTGRES_URL` automatically.
+## 2 + 3. Database and secret — one command (or the dashboard)
+
+**Command line (recommended):**
+```bash
+npm install
+npm run setup:vercel
+```
+It links the folder to your Vercel project, runs `vercel integration add neon` (**choose the Free plan** when prompted and connect it to Production, Preview and Development), and generates + stores `AUTH_SECRET`. It skips anything already configured, so it is safe to re-run.
+
+**Or by hand:** Vercel dashboard → project → **Storage → Create → Neon (Postgres)**, then **Settings → Environment Variables** → add `AUTH_SECRET` = `openssl rand -base64 32`.
+
 *(Any Postgres 13+ works — Supabase, Railway, RDS — just set `DATABASE_URL`.)*
 
-## 3. Add the secret
-Project → **Settings → Environment Variables**:
+### How the schema stays up to date automatically
+`vercel.json` runs `npm run build` = `node db/migrate.js --if-configured` on every deployment. It applies each file in `db/migrations/` that isn't yet recorded in the `schema_migrations` table, inside a transaction, under a Postgres advisory lock (two simultaneous builds can't collide). To change the database in future, add the next numbered file (e.g. `db/migrations/0002_add_timezone.sql`), commit, push — the next build applies it, and a failing migration fails the build so broken schema never goes live.
 
-| Name | Value |
-|---|---|
-| `AUTH_SECRET` | output of `openssl rand -base64 32` (≥ 16 chars; rotating it signs everyone out) |
+Rules of thumb: migrations are forward-only (never edit an applied file); prefer additive changes (`add column … if not exists`) so the previous deployment keeps working while the new one rolls out. **Preview builds skip migrations** by default because Neon's integration usually shares one database across environments; set `MIGRATE_ON_PREVIEW=1` (or give previews their own database) if you want them to migrate.
 
 ## 4. Deploy
-Click **Deploy**. The build runs `node db/migrate.js --if-configured`, which creates all tables (safe to re-run on every deploy). If you added the database after the first deploy, just **Redeploy**.
+Click **Deploy**. The build creates all tables on the first run. If you added the database after the first deploy, just **Redeploy**.
 
 Check: open `https://YOUR-APP.vercel.app/api/healthz` → `{"ok":true}`.
 
@@ -41,7 +48,7 @@ Check: open `https://YOUR-APP.vercel.app/api/healthz` → `{"ok":true}`.
 npm install
 createdb stakefit_dev                                   # any local Postgres
 export DATABASE_URL=postgres://localhost/stakefit_dev DATABASE_SSL=off AUTH_SECRET=dev-secret-dev-secret
-npm run db:migrate
+npm run db:migrate                                      # applies db/migrations
 npm run dev                                             # http://localhost:3000
 npm test                                                # engine/parser/auth unit tests
 DATABASE_URL=… npm test                                 # + full API end-to-end test (use a scratch DB: it truncates tables)

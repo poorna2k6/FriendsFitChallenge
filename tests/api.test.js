@@ -16,7 +16,9 @@ test('API end-to-end: auth, challenge, health ingest, blind mode, peeks, admin t
   const base = `http://127.0.0.1:${server.address().port}`;
   t.after(async () => { server.close(); await pool().end(); });
 
-  await query(fs.readFileSync(require('path').join(__dirname, '../db/schema.sql'), 'utf8'));
+  const { migrate } = require('../db/migrate');
+  await migrate();
+  assert.deepStrictEqual(await migrate(), [], 'migrations are idempotent: second run applies nothing');
   await query('truncate users, rate_limits cascade');
 
   const jar = {};

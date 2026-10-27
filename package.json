@@ -13,7 +13,8 @@
     "db:migrate": "node db/migrate.js",
     "build:css": "tailwindcss -c tailwind.config.js -i src/tailwind.css -o public/assets/app.css --minify",
     "build:vendor": "node scripts/copy-vendor.js",
-    "build:icons": "node scripts/gen-icons.js"
+    "build:icons": "node scripts/gen-icons.js",
+    "setup:vercel": "bash scripts/setup-vercel.sh"
   },
   "dependencies": {
     "pg": "^8.13.1"
