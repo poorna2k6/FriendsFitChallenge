@@ -86,3 +86,14 @@ Multi-challenge hub with All/Admin/Member/Created filters · iOS-style nav bar w
 * **No native HealthKit / Health Connect.** Browsers cannot read them. See `docs/HEALTH_SYNC.md` for what is supported and the roadmap.
 * No push notifications, password reset email, email verification, or challenge deletion/leave flow yet.
 * "Buddy shield" plug-in is a toggle with no mechanics.
+
+---
+
+## 4. Added after the Pacer comparison
+
+| Feature | Where | Notes |
+|---|---|---|
+| ➕ **My Progress card** | Today screen, under the activity ring | Last 7 days of steps as bars, a dashed 10K goal line, current/best streak, earned badges and the next badge's progress |
+| ➕ **History screen** | Progress card → *History*, or account menu | 7 / 30 / 90-day charts for steps, active kcal, workout minutes, distance; total, daily average, best day, goal days. Only the signed-in user's own data (`GET /api/me/history`), so blind mode is unaffected |
+| ➕ **13 badges** | History screen | First Sync, Squad Up, Host, 10K/15K/20K Day, 3/7/30-day streaks, 100K Club, Million Stepper, Active Week (150 min in 7 days), Comeback. Computed from synced daily totals (up to 2 years back), no extra tables. A toast announces newly earned badges |
+| ➕ **Invite QR code** | Admin console (next to *Copy Invite Link*), member Admin screen, account menu | Scannable code for the invite link plus the typed invite code. Generated in the browser (vendored `qrcode-generator`, MIT) |

@@ -91,6 +91,14 @@ test('API end-to-end: auth, challenge, health ingest, blind mode, peeks, admin t
   assert.ok(sa.challenges[0].logs.some((l) => l.source.includes('Apple Health')), 'sync events in feed');
   assert.ok(sb.auditLedger.some((x) => x.verdict === 'QUARANTINED') && sb.auditLedger.some((x) => x.verdict === 'VERIFIED'));
 
+  // --- personal history & badges (own data only) ---
+  const hist = await ok('a', 'GET', '/me/history?days=7');
+  assert.strictEqual(hist.days.length, 7);
+  assert.strictEqual(hist.days[hist.days.length - 1].steps, 12000);
+  const hb = Object.fromEntries(hist.badges.map((x) => [x.id, x.earned]));
+  assert.ok(hb.first_sync && hb.goal_day && hb.host && hb.squad_up && !hb.epic_day);
+  assert.strictEqual((await call(null, 'GET', '/me/history')).status, 401);
+
   // --- pay to peek (direct_to_target, weekly pass) ---
   const adaId = sa.me.id;
   const peek1 = await ok('b', 'POST', `/challenges/${chId}/peek`, { target: adaId });

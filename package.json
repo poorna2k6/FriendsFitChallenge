@@ -20,7 +20,8 @@
     "pg": "^8.13.1"
   },
   "devDependencies": {
-    "tailwindcss": "^3.4.17",
-    "chart.js": "^4.4.1"
+    "chart.js": "^4.4.1",
+    "qrcode-generator": "^2.0.4",
+    "tailwindcss": "^3.4.17"
   }
 }

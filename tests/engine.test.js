@@ -64,3 +64,24 @@ test('auth: password hashing and signed sessions', async () => {
   assert.strictEqual(A.verifySession(tok), 'user-1');
   assert.strictEqual(A.verifySession(tok.slice(0, -2) + 'xx'), null, 'tampered token rejected');
 });
+
+test('history: streaks and badges from daily totals', () => {
+  const { calendar, streaks, computeBadges } = require('../lib/history.js');
+  const rows = [];
+  const steps = { '2026-10-01': 12000, '2026-10-02': 11000, '2026-10-03': 16000, '2026-10-04': 500, '2026-10-05': 0, '2026-10-06': 2000, '2026-10-07': 10500 };
+  for (const [day, v] of Object.entries(steps)) rows.push({ day, metric: 'steps', value: v });
+  rows.push({ day: '2026-10-03', metric: 'minutes', value: 160 });
+  const days = calendar(rows, '2026-09-30', '2026-10-07');
+  assert.strictEqual(days.length, 8, 'every calendar day is present');
+  const st = streaks(days);
+  assert.deepStrictEqual([st.best, st.current], [3, 1]);
+  const b = Object.fromEntries(computeBadges(days, { challenges: 1, hosted: 0 }).map((x) => [x.id, x]));
+  assert.ok(b.first_sync.earned && b.squad_up.earned && !b.host.earned);
+  assert.ok(b.goal_day.earned && b.big_day.earned && !b.epic_day.earned);
+  assert.strictEqual(b.goal_day.earnedOn, '2026-10-01');
+  assert.ok(b.streak_3.earned && !b.streak_7.earned);
+  assert.ok(Math.abs(b.streak_7.progress - 3 / 7) < 1e-9);
+  assert.ok(b.active_week.earned, '160 workout minutes');
+  assert.ok(b.comeback.earned && b.comeback.earnedOn === '2026-10-07', '10K again after 3 days below');
+  assert.ok(!b.total_100k.earned && b.total_100k.label.includes('52,000'));
+});

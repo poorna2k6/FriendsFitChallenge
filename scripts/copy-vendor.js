@@ -1,7 +1,12 @@
 const fs = require('fs');
 const path = require('path');
-const src = path.join(__dirname, '..', 'node_modules', 'chart.js', 'dist', 'chart.umd.js');
-const dst = path.join(__dirname, '..', 'public', 'vendor', 'chart.umd.js');
-fs.mkdirSync(path.dirname(dst), { recursive: true });
-fs.copyFileSync(src, dst);
-console.log('copied', dst);
+const root = path.join(__dirname, '..');
+const copies = [
+  ['node_modules/chart.js/dist/chart.umd.js', 'public/vendor/chart.umd.js'],
+  ['node_modules/qrcode-generator/dist/qrcode.js', 'public/vendor/qrcode.js']
+];
+for (const [from, to] of copies) {
+  fs.mkdirSync(path.dirname(path.join(root, to)), { recursive: true });
+  fs.copyFileSync(path.join(root, from), path.join(root, to));
+  console.log('copied', to);
+}

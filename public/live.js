@@ -164,6 +164,7 @@
       const s = await api('GET', '/state');
       applyState(s, opts);
       renderAll();
+      loadHistory();
     } catch (e) {
       if (e.offline) {
         const cached = store.get(CACHE_KEY);
@@ -320,6 +321,8 @@
     // rules view: day elapsed is calendar-driven
     const el = $('ruleElapsedInput');
     if (el) el.title = 'Challenge day follows the calendar. Admins can correct the start date by editing this number.';
+    renderProgressCard();
+    addQrButtons();
     updateInstallButton();
   }
 
@@ -625,6 +628,8 @@
       <div class="space-y-3">
         <div class="p-3 rounded-xl bg-slate-950 border border-slate-800"><div class="font-bold text-white">${esc(LIVE.me.name)}</div><div class="text-xs text-slate-400">${esc(LIVE.me.email)}</div></div>
         <button type="button" onclick="closeModal('sfInfoModal');LIVE_UI.openConnect()" class="w-full py-2.5 rounded-xl bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 font-bold text-xs">📲 Health App Connections</button>
+        <button type="button" onclick="closeModal('sfInfoModal');LIVE_UI.openHistory()" class="w-full py-2.5 rounded-xl bg-slate-800 text-slate-200 font-bold text-xs">📈 My History & Badges</button>
+        <button type="button" onclick="LIVE_UI.showInviteQr()" class="w-full py-2.5 rounded-xl bg-slate-800 text-slate-200 font-bold text-xs">📱 Invite QR Code</button>
         <button type="button" onclick="LIVE_UI.installApp()" class="w-full py-2.5 rounded-xl bg-slate-800 text-slate-200 font-bold text-xs">⬇️ Install App on This Device</button>
         <button type="button" onclick="LIVE_UI.signOut()" class="w-full py-2.5 rounded-xl bg-rose-500/20 text-rose-300 border border-rose-500/40 font-bold text-xs">Sign out</button>
       </div>`);
@@ -764,8 +769,223 @@
   }
   const priorityOf = (provider) => { const c = LIVE.connections.find((x) => x.provider === provider); return c ? c.priority : 100; };
 
+  // ---------------------------------------------------------------- my history, badges, invite QR
+  const HIST = { data: null, loadedAt: 0, window: 30, metric: 'steps', chart: null };
+  const HMETRIC = {
+    steps: { label: 'Steps', unit: 'steps', icon: '👣', fmt: (v) => Math.round(v).toLocaleString() },
+    calories: { label: 'Active kcal', unit: 'kcal', icon: '🔥', fmt: (v) => Math.round(v).toLocaleString() },
+    minutes: { label: 'Workout min', unit: 'min', icon: '⏱️', fmt: (v) => Math.round(v).toLocaleString() },
+    distance: { label: 'Distance', unit: 'km', icon: '🏃', fmt: (v) => (Math.round(v * 10) / 10).toLocaleString() }
+  };
+  const shortDay = (d) => new Date(`${d}T00:00:00Z`).toLocaleDateString(undefined, { weekday: 'short', timeZone: 'UTC' }).slice(0, 2);
+  const monthDay = (d) => new Date(`${d}T00:00:00Z`).toLocaleDateString(undefined, { month: 'short', day: 'numeric', timeZone: 'UTC' });
+
+  async function loadHistory(force) {
+    if (!LIVE.on || LIVE.offline) return;
+    if (!force && Date.now() - HIST.loadedAt < 15000) return;
+    try {
+      HIST.data = await api('GET', `/me/history?days=${HIST.window}`);
+      HIST.loadedAt = Date.now();
+      announceNewBadges(HIST.data.badges);
+      renderProgressCard();
+      if ($('sfHistory') && !$('sfHistory').classList.contains('hidden')) renderHistory();
+    } catch (e) { /* offline or signed out: the card just stays as it was */ }
+  }
+
+  function announceNewBadges(badges) {
+    if (!LIVE.me) return;
+    const key = `sf_badges_seen_${LIVE.me.id}`;
+    const earned = badges.filter((b) => b.earned).map((b) => b.id);
+    const raw = store.get(key);
+    store.set(key, JSON.stringify(earned));
+    if (raw === null) return; // first visit on this device: don't replay old badges
+    let seen = [];
+    try { seen = JSON.parse(raw); } catch (e) { /* ignore */ }
+    const fresh = badges.filter((b) => b.earned && !seen.includes(b.id));
+    if (fresh.length) setTimeout(() => toast(`🏅 New badge${fresh.length > 1 ? 's' : ''}: ${fresh.map((b) => `${b.icon} ${b.title}`).join(', ')}`), 900);
+  }
+
+  function renderProgressCard() {
+    const ring = $('iosScreen-myRing');
+    if (!ring || !LIVE.on) return;
+    let card = $('sfProgressCard');
+    if (!card) {
+      card = document.createElement('div');
+      card.id = 'sfProgressCard';
+      card.className = 'glass-card rounded-3xl p-4 space-y-3';
+      const hero = ring.querySelector('.glass-card');
+      if (hero && hero.nextSibling) ring.insertBefore(card, hero.nextSibling); else ring.appendChild(card);
+    }
+    const h = HIST.data;
+    if (!h) { card.innerHTML = '<div class="text-xs text-slate-400">📈 Loading your history…</div>'; return; }
+    const last7 = h.days.slice(-7);
+    const max = Math.max(h.goal, ...last7.map((d) => d.steps));
+    const bars = last7.map((d) => {
+      const pct = Math.max(3, Math.round((d.steps / max) * 100));
+      const hit = d.steps >= h.goal;
+      return `<div class="flex-1 flex flex-col items-center gap-1" title="${monthDay(d.day)}: ${d.steps.toLocaleString()} steps">
+        <div class="w-full h-16 flex items-end"><div class="w-full rounded-md ${hit ? 'bg-emerald-400' : d.synced ? 'bg-sky-500/70' : 'bg-slate-700/60'}" style="height:${pct}%"></div></div>
+        <span class="text-[9px] text-slate-400">${shortDay(d.day)}</span></div>`;
+    }).join('');
+    const goalLine = Math.round((h.goal / max) * 100);
+    const earned = h.badges.filter((b) => b.earned);
+    const next = h.badges.filter((b) => !b.earned && b.progress > 0).sort((a, b) => b.progress - a.progress)[0];
+    card.innerHTML = `
+      <div class="flex items-center justify-between gap-2">
+        <div><div class="text-sm font-extrabold text-white">📈 My Progress</div>
+          <div class="text-[11px] text-slate-400">🔥 ${h.streak.current}-day 10K streak • best ${h.streak.best} • ${h.stats.goalDays}/${h.window} goal days</div></div>
+        <button type="button" onclick="LIVE_UI.openHistory()" class="shrink-0 px-3 py-1.5 rounded-xl bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 text-[11px] font-extrabold">History ›</button>
+      </div>
+      <div class="relative">
+        <div class="absolute inset-x-0 border-t border-dashed border-amber-400/60" style="bottom:calc(${goalLine}% * 0.64 + 18px)" title="10,000-step goal"></div>
+        <div class="flex items-end gap-1.5">${bars}</div>
+      </div>
+      <button type="button" onclick="LIVE_UI.openHistory('badges')" class="w-full text-left p-2.5 rounded-2xl bg-slate-950/70 border border-white/10 flex items-center justify-between gap-2">
+        <span class="text-lg tracking-tight truncate">${earned.length ? earned.map((b) => b.icon).join(' ') : '🔒'}</span>
+        <span class="shrink-0 text-[11px] text-slate-300 font-bold">🏅 ${earned.length}/${h.badges.length}${next ? ` • next: ${esc(next.title)} ${Math.round(next.progress * 100)}%` : ''}</span>
+      </button>`;
+  }
+
+  function historyModal() {
+    let m = $('sfHistory');
+    if (!m) {
+      m = document.createElement('div');
+      m.id = 'sfHistory';
+      m.className = 'fixed inset-0 z-[60] hidden items-start justify-center bg-slate-950/90 backdrop-blur-md p-3 overflow-y-auto';
+      document.body.appendChild(m);
+    }
+    return m;
+  }
+
+  async function openHistory(section) {
+    const m = historyModal();
+    m.classList.remove('hidden'); m.classList.add('flex');
+    if (HIST.data) renderHistory(); else m.innerHTML = '<div class="mt-24 text-xs text-slate-300">Loading…</div>';
+    await loadHistory(true); // always fetch fresh numbers when opened
+    renderHistory();
+    if (section === 'badges') setTimeout(() => { const b = $('sfBadgeGrid'); if (b) b.scrollIntoView({ behavior: 'smooth' }); }, 50);
+  }
+  function closeHistory() { const m = historyModal(); m.classList.add('hidden'); m.classList.remove('flex'); }
+
+  function renderHistory() {
+    const m = historyModal();
+    const h = HIST.data;
+    if (!h) { m.innerHTML = '<div class="mt-24 text-xs text-slate-300">Could not load your history. Check your connection.</div>'; return; }
+    const mc = HMETRIC[HIST.metric];
+    const s = h.stats[HIST.metric];
+    const seg = (items, active, fn) => items.map(([v, l]) => `<button type="button" onclick="LIVE_UI.${fn}('${v}')" class="py-1.5 rounded-lg ${String(v) === String(active) ? 'ios-segmented-btn-active' : 'text-slate-300'}">${l}</button>`).join('');
+    const tile = (label, value, sub) => `<div class="p-3 rounded-2xl bg-slate-950/80 border border-white/10"><div class="text-[10px] uppercase font-bold text-slate-400">${label}</div><div class="text-base font-black text-white">${value}</div>${sub ? `<div class="text-[10px] text-slate-400">${sub}</div>` : ''}</div>`;
+    const badges = h.badges.map((b) => `
+      <div class="p-3 rounded-2xl border ${b.earned ? 'bg-emerald-500/10 border-emerald-500/40' : 'bg-slate-950/70 border-white/10'} space-y-1.5">
+        <div class="flex items-center gap-2"><span class="text-2xl ${b.earned ? '' : 'grayscale opacity-40'}">${b.icon}</span>
+          <div class="min-w-0"><div class="text-xs font-extrabold ${b.earned ? 'text-white' : 'text-slate-400'}">${esc(b.title)}</div><div class="text-[10px] text-slate-400">${esc(b.desc)}</div></div></div>
+        ${b.earned ? `<div class="text-[10px] font-bold text-emerald-300">✓ Earned${b.earnedOn ? ` ${monthDay(b.earnedOn)}` : ''}</div>`
+          : `<div class="h-1.5 rounded-full bg-slate-800 overflow-hidden"><div class="h-full bg-amber-400" style="width:${Math.round(b.progress * 100)}%"></div></div><div class="text-[10px] text-slate-500">${esc(b.label)}</div>`}
+      </div>`).join('');
+    m.innerHTML = `
+      <div class="bg-slate-900 border border-emerald-500/30 rounded-3xl max-w-lg w-full my-3 p-4 sm:p-5 space-y-4" style="padding-top:max(1rem,env(safe-area-inset-top))">
+        <div class="flex items-start justify-between gap-2">
+          <div><span class="text-[10px] font-extrabold uppercase tracking-wider px-2 py-0.5 rounded-md bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">Only you can see this</span>
+            <h3 class="text-lg font-extrabold text-white mt-1">📈 My History & Badges</h3>
+            <p class="text-xs text-slate-400">From your phone's health sync. 🔥 Current 10K streak: <strong class="text-white">${h.streak.current} days</strong> (best ${h.streak.best}).</p></div>
+          <button type="button" onclick="LIVE_UI.closeHistory()" class="px-2.5 py-1 rounded-xl bg-slate-800 text-slate-300 text-xs font-bold">✕</button>
+        </div>
+        <div class="ios-segmented grid grid-cols-3 gap-1 text-[11px] font-bold">${seg([[7, '7 days'], [30, '30 days'], [90, '90 days']], h.window, 'setHistoryRange')}</div>
+        <div class="ios-segmented grid grid-cols-4 gap-1 text-[11px] font-bold">${seg(Object.entries(HMETRIC).map(([k, v]) => [k, `${v.icon} ${v.label.split(' ')[0]}`]), HIST.metric, 'setHistoryMetric')}</div>
+        <div class="relative h-48"><canvas id="sfHistoryChart"></canvas></div>
+        <div class="grid grid-cols-2 gap-2">
+          ${tile(`Total ${mc.label.toLowerCase()}`, `${mc.fmt(s.total)} ${mc.unit}`, `last ${h.window} days`)}
+          ${tile('Daily average', `${mc.fmt(s.avg)} ${mc.unit}`, `over ${h.stats.syncedDays} synced day${h.stats.syncedDays === 1 ? '' : 's'}`)}
+          ${tile('Best day', s.best.day ? `${mc.fmt(s.best.value)} ${mc.unit}` : '—', s.best.day ? monthDay(s.best.day) : '')}
+          ${tile('10K goal days', `${h.stats.goalDays} / ${h.window}`, `${Math.round((h.stats.goalDays / h.window) * 100)}% of days`)}
+        </div>
+        <div id="sfBadgeGrid" class="space-y-2">
+          <div class="text-sm font-extrabold text-white">🏅 Badges <span class="text-xs font-bold text-slate-400">${h.badges.filter((b) => b.earned).length}/${h.badges.length} earned</span></div>
+          <div class="grid grid-cols-2 gap-2">${badges}</div>
+        </div>
+        ${h.stats.syncedDays ? '' : '<div class="p-3 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-xs text-amber-200">No synced days yet. <button type="button" class="underline font-bold" onclick="LIVE_UI.closeHistory();LIVE_UI.openConnect()">Connect your health app</button> to start filling this in.</div>'}
+      </div>`;
+    drawHistoryChart();
+  }
+
+  function drawHistoryChart() {
+    const h = HIST.data;
+    const el = $('sfHistoryChart');
+    if (!el || typeof Chart === 'undefined') return;
+    if (HIST.chart) { HIST.chart.destroy(); HIST.chart = null; }
+    const metric = HIST.metric;
+    const datasets = [{
+      label: HMETRIC[metric].label,
+      data: h.days.map((d) => d[metric]),
+      backgroundColor: h.days.map((d) => (metric === 'steps' && d.steps >= h.goal ? 'rgba(52,211,153,0.9)' : 'rgba(56,189,248,0.75)')),
+      borderRadius: 4, barPercentage: 0.8
+    }];
+    if (metric === 'steps') datasets.push({ type: 'line', label: '10K goal', data: h.days.map(() => h.goal), borderColor: '#f59e0b', borderDash: [5, 4], borderWidth: 1.5, pointRadius: 0 });
+    HIST.chart = new Chart(el, {
+      type: 'bar',
+      data: { labels: h.days.map((d) => (h.window <= 7 ? shortDay(d.day) : monthDay(d.day))), datasets },
+      options: {
+        responsive: true, maintainAspectRatio: false, animation: false,
+        plugins: { legend: { display: false }, tooltip: { callbacks: { label: (c) => `${c.dataset.label}: ${HMETRIC[metric].fmt(c.raw)} ${HMETRIC[metric].unit}` } } },
+        scales: {
+          x: { ticks: { color: '#94a3b8', maxRotation: 0, autoSkip: true, maxTicksLimit: 8, font: { size: 10 } }, grid: { display: false } },
+          y: { beginAtZero: true, ticks: { color: '#94a3b8', font: { size: 10 } }, grid: { color: 'rgba(148,163,184,0.1)' } }
+        }
+      }
+    });
+  }
+
+  async function setHistoryRange(n) { HIST.window = Number(n); await loadHistory(true); renderHistory(); }
+  function setHistoryMetric(k) { if (HMETRIC[k]) { HIST.metric = k; renderHistory(); } }
+
+  function showInviteQr() {
+    const ch = getActiveChallenge();
+    if (!ch || !ch.inviteCode) { toast('Create or join a challenge first'); return; }
+    const link = inviteLink(ch.inviteCode);
+    let svg = '';
+    try {
+      const qr = qrcode(0, 'M');
+      qr.addData(link);
+      qr.make();
+      svg = qr.createSvgTag({ cellSize: 6, margin: 2, scalable: true });
+    } catch (e) { svg = '<div class="text-xs text-rose-600 p-6">Could not draw the QR code.</div>'; }
+    openInfo(`📱 Scan to join "${ch.title}"`, `
+      <div class="space-y-3 text-center">
+        <div class="sf-qr mx-auto w-64 max-w-full p-3 rounded-2xl bg-white">${svg}</div>
+        <div class="text-xs text-slate-400">Friends point their phone camera at this code. Or type the invite code:</div>
+        <div class="text-2xl font-black tracking-[0.3em] text-white font-mono">${esc(ch.inviteCode)}</div>
+        <div class="text-[11px] text-slate-500 break-all">${esc(link)}</div>
+        <div class="grid grid-cols-2 gap-2">
+          <button type="button" onclick="copyInviteLink()" class="py-2.5 rounded-xl bg-emerald-500 text-slate-950 font-black text-xs">🔗 Share / Copy Link</button>
+          <button type="button" onclick="closeModal('sfInfoModal')" class="py-2.5 rounded-xl bg-slate-800 text-slate-200 font-bold text-xs">Done</button>
+        </div>
+      </div>`);
+  }
+
+  function addQrButtons() {
+    const copyBtn = document.querySelector('#adminUnlockedConsoleWrapper [onclick="copyInviteLink()"]');
+    if (copyBtn && !$('sfQrAdminBtn')) {
+      const b = document.createElement('button');
+      b.type = 'button'; b.id = 'sfQrAdminBtn';
+      b.className = 'ml-1.5 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-sky-300 border border-sky-500/30 text-xs font-bold transition';
+      b.textContent = '📱 QR Code';
+      b.onclick = showInviteQr;
+      copyBtn.insertAdjacentElement('afterend', b);
+    }
+    const locked = $('adminLockedMemberNotice');
+    if (locked && !$('sfQrMemberBtn')) {
+      const b = document.createElement('button');
+      b.type = 'button'; b.id = 'sfQrMemberBtn';
+      b.className = 'w-full mt-3 py-2.5 rounded-2xl bg-sky-500/15 text-sky-300 border border-sky-500/30 text-xs font-extrabold';
+      b.textContent = '📱 Invite friends with a QR code';
+      b.onclick = showInviteQr;
+      (locked.querySelector('.glass-card') || locked).appendChild(b);
+    }
+  }
+
   const LIVE_UI = (window.LIVE_UI = {
     openConnect, closeConnect, installApp, openAccount, signOut, joinPrompt,
+    openHistory, closeHistory, setHistoryRange, setHistoryMetric, showInviteQr,
     async setup(provider) {
       try {
         const out = await api('POST', '/health/connections', { provider });
@@ -800,6 +1020,7 @@
   const css = document.createElement('style');
   css.textContent = `
     body.live-mode .demo-only { display: none !important; }
+    .sf-qr svg { width: 100%; height: auto; display: block; }
     #sfConnect pre, #sfConnect code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
     header.sticky { padding-top: env(safe-area-inset-top); }
     nav.ios-tabbar-blur { padding-bottom: calc(0.25rem + env(safe-area-inset-bottom)); }
@@ -831,6 +1052,7 @@
       switchSimpleView(view === 'sync' ? (state.simpleView || 'hub') : (view || state.simpleView || 'hub'));
       if (view === 'sync') openConnect();
       updateInstallButton();
+      loadHistory(true);
       startPolling();
     } catch (e) {
       splash.style.display = 'none';

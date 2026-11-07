@@ -1,8 +1,8 @@
 /* StakeFit service worker: offline app shell, network-first navigations, never caches the API. */
-const VERSION = 'stakefit-v1';
+const VERSION = 'stakefit-v2';
 const SHELL = [
   '/', '/index.html', '/offline.html', '/manifest.webmanifest',
-  '/assets/app.css', '/vendor/chart.umd.js', '/engine.js', '/live.js',
+  '/assets/app.css', '/vendor/chart.umd.js', '/vendor/qrcode.js', '/engine.js', '/live.js',
   '/icons/icon-192.png', '/icons/icon-512.png', '/icons/apple-touch-icon.png'
 ];
 
